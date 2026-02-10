@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
@@ -24,6 +25,16 @@ class ControlPanel(QWidget):
     exposure_changed = Signal(int)
     gain_changed = Signal(float)
     fps_changed = Signal(int)
+
+    # Overlay signals
+    show_grid_changed = Signal(bool)
+    show_crosshair_changed = Signal(bool)
+    grid_spacing_changed = Signal(int)
+    crosshair_size_changed = Signal(int)
+
+    # Projection signals
+    show_x_projection_changed = Signal(bool)
+    show_y_projection_changed = Signal(bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -78,6 +89,60 @@ class ControlPanel(QWidget):
 
         layout.addWidget(settings_group)
 
+        # Overlay settings
+        overlay_group = QGroupBox("Overlay")
+        overlay_layout = QFormLayout(overlay_group)
+
+        self._crosshair_check = QCheckBox()
+        self._crosshair_check.setChecked(True)
+        self._crosshair_check.stateChanged.connect(
+            lambda s: self.show_crosshair_changed.emit(s == 2)
+        )
+        overlay_layout.addRow("Crosshair:", self._crosshair_check)
+
+        self._crosshair_size_spin = QSpinBox()
+        self._crosshair_size_spin.setRange(10, 200)
+        self._crosshair_size_spin.setValue(40)
+        self._crosshair_size_spin.setSuffix(" px")
+        self._crosshair_size_spin.valueChanged.connect(self.crosshair_size_changed.emit)
+        overlay_layout.addRow("Crosshair Size:", self._crosshair_size_spin)
+
+        self._grid_check = QCheckBox()
+        self._grid_check.setChecked(False)
+        self._grid_check.stateChanged.connect(
+            lambda s: self.show_grid_changed.emit(s == 2)
+        )
+        overlay_layout.addRow("Grid:", self._grid_check)
+
+        self._grid_spacing_spin = QSpinBox()
+        self._grid_spacing_spin.setRange(10, 200)
+        self._grid_spacing_spin.setValue(50)
+        self._grid_spacing_spin.setSuffix(" px")
+        self._grid_spacing_spin.valueChanged.connect(self.grid_spacing_changed.emit)
+        overlay_layout.addRow("Grid Spacing:", self._grid_spacing_spin)
+
+        layout.addWidget(overlay_group)
+
+        # Projection settings
+        projection_group = QGroupBox("Projections")
+        projection_layout = QFormLayout(projection_group)
+
+        self._x_projection_check = QCheckBox()
+        self._x_projection_check.setChecked(False)
+        self._x_projection_check.stateChanged.connect(
+            lambda s: self.show_x_projection_changed.emit(s == 2)
+        )
+        projection_layout.addRow("X Projection:", self._x_projection_check)
+
+        self._y_projection_check = QCheckBox()
+        self._y_projection_check.setChecked(False)
+        self._y_projection_check.stateChanged.connect(
+            lambda s: self.show_y_projection_changed.emit(s == 2)
+        )
+        projection_layout.addRow("Y Projection:", self._y_projection_check)
+
+        layout.addWidget(projection_group)
+
         # Stats display
         stats_group = QGroupBox("Statistics")
         stats_layout = QFormLayout(stats_group)
@@ -117,3 +182,19 @@ class ControlPanel(QWidget):
     @property
     def fps(self) -> int:
         return self._fps_spin.value()
+
+    @property
+    def show_crosshair(self) -> bool:
+        return self._crosshair_check.isChecked()
+
+    @property
+    def show_grid(self) -> bool:
+        return self._grid_check.isChecked()
+
+    @property
+    def show_x_projection(self) -> bool:
+        return self._x_projection_check.isChecked()
+
+    @property
+    def show_y_projection(self) -> bool:
+        return self._y_projection_check.isChecked()

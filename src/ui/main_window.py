@@ -6,12 +6,13 @@ import time
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QThread, QTimer, Signal
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
 
 from camera.mock import MockCamera
 from camera.spinnaker import SPINNAKER_AVAILABLE, SpinnakerCamera
 from core.config import config
 from ui.controls import ControlPanel
+from ui.projections import ProjectionPanel, YProjectionPanel
 from ui.viewport import CameraViewport
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Spinnaker Camera Viewer")
+        self.setWindowTitle("Camera Analysis QC")
         self.setMinimumSize(1024, 768)
 
         self._camera: CameraProtocol | None = None
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow):
 
         self._setup_ui()
         self._setup_camera()
+        self._connect_signals()
 
         # FPS update timer
         self._stats_timer = QTimer()
@@ -71,25 +73,61 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
 
-        layout = QHBoxLayout(central)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+        # Left side: viewport + projections
+        view_layout = QVBoxLayout()
+        view_layout.setSpacing(5)
+
+        # Viewport row with Y projection
+        viewport_row = QHBoxLayout()
+        viewport_row.setSpacing(5)
+
+        # Y projection (left of viewport)
+        self._y_projection = YProjectionPanel()
+        self._y_projection.setVisible(False)
+        viewport_row.addWidget(self._y_projection)
 
         # Camera viewport
         self._viewport = CameraViewport(
             config.display.width,
             config.display.height,
         )
-        layout.addWidget(self._viewport, stretch=1)
+        viewport_row.addWidget(self._viewport, stretch=1)
 
-        # Control panel
+        view_layout.addLayout(viewport_row, stretch=1)
+
+        # X projection (below viewport)
+        self._x_projection = ProjectionPanel()
+        self._x_projection.setVisible(False)
+        view_layout.addWidget(self._x_projection)
+
+        main_layout.addLayout(view_layout, stretch=1)
+
+        # Control panel (right side)
         self._controls = ControlPanel()
+        main_layout.addWidget(self._controls)
+
+    def _connect_signals(self) -> None:
+        """Connect control panel signals."""
+        # Camera controls
         self._controls.start_clicked.connect(self._start_acquisition)
         self._controls.stop_clicked.connect(self._stop_acquisition)
         self._controls.exposure_changed.connect(self._on_exposure_changed)
         self._controls.gain_changed.connect(self._on_gain_changed)
         self._controls.fps_changed.connect(self._on_fps_changed)
-        layout.addWidget(self._controls)
+
+        # Overlay controls
+        self._controls.show_grid_changed.connect(self._viewport.set_show_grid)
+        self._controls.show_crosshair_changed.connect(self._viewport.set_show_crosshair)
+        self._controls.grid_spacing_changed.connect(self._viewport.set_grid_spacing)
+        self._controls.crosshair_size_changed.connect(self._viewport.set_crosshair_size)
+
+        # Projection controls
+        self._controls.show_x_projection_changed.connect(self._x_projection.set_visible)
+        self._controls.show_y_projection_changed.connect(self._y_projection.set_visible)
 
     def _setup_camera(self) -> None:
         """Initialize camera based on config."""
@@ -146,6 +184,12 @@ class MainWindow(QMainWindow):
         if isinstance(frame, np.ndarray):
             self._viewport.update_frame(frame)
             self._frame_count += 1
+
+            # Update projections if visible
+            if self._controls.show_x_projection:
+                self._x_projection.update_from_frame(frame)
+            if self._controls.show_y_projection:
+                self._y_projection.update_from_frame(frame)
 
     def _on_error(self, message: str) -> None:
         """Handle acquisition error."""
