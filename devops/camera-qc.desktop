@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Camera Analysis QC
+GenericName=Camera Quality Control
+Comment=Camera quality control with beam profiling and projections
+Exec=/usr/local/bin/camera-qc
+Icon=camera-qc
+Terminal=false
+Categories=Utility;Graphics;Science;Engineering;
+Keywords=camera;qc;beam;profile;spinnaker;flir;
+StartupNotify=true
+StartupWMClass=camera-qc

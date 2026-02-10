@@ -1,0 +1,57 @@
+# Camera Analysis QC - Docker Compose
+#
+# Usage:
+#   # First, allow X11 connections
+#   xhost +local:docker
+#
+#   # Run the application
+#   docker compose -f devops/docker-compose.yml up
+#
+#   # For Jetson
+#   docker compose -f devops/docker-compose.yml --profile jetson up
+
+version: "3.8"
+
+services:
+  # x86_64 Linux
+  camera-qc:
+    build:
+      context: ..
+      dockerfile: devops/Dockerfile
+    image: camera-qc:latest
+    container_name: camera-qc
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /opt/spinnaker:/opt/spinnaker:ro
+      # Optional: persist exports
+      - ./exports:/app/exports
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    network_mode: host
+    profiles:
+      - default
+      - x86
+
+  # Jetson Orin Nano
+  camera-qc-jetson:
+    build:
+      context: ..
+      dockerfile: devops/Dockerfile.jetson
+    image: camera-qc-jetson:latest
+    container_name: camera-qc-jetson
+    runtime: nvidia
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /opt/spinnaker:/opt/spinnaker:ro
+      - ./exports:/app/exports
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    network_mode: host
+    profiles:
+      - jetson
