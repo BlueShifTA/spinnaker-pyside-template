@@ -1,6 +1,25 @@
 # Spinnaker + PySide6 Camera Application
 
-A desktop application for FLIR Spinnaker camera livestreaming with PySide6 GUI.
+A desktop application for FLIR Spinnaker camera livestreaming with PySide6 GUI, designed for camera QC and beam profiling.
+
+## ✨ Features
+
+- **Live Camera View** with overlay options (grid, crosshair)
+- **X/Y Projection Analysis** with multiple modes:
+  - Sum (true projection)
+  - Min/Max (extreme value)
+  - Average (mean)
+- **Beam Profiling**:
+  - FWHM (Full Width at Half Maximum) calculation
+  - Mean, standard deviation, peak position
+  - Normalization option
+- **Export Capabilities**:
+  - Image export (TIFF, PNG)
+  - Projection data export (CSV, PNG)
+- **Keyboard Shortcuts**:
+  - `H` - Hide/show control panel
+  - `F` - Toggle fullscreen
+  - `Escape` - Exit fullscreen
 
 ## 🏗️ Project Structure
 
@@ -16,9 +35,11 @@ A desktop application for FLIR Spinnaker camera livestreaming with PySide6 GUI.
 │   ├── ui/               # PySide6 widgets
 │   │   ├── main_window.py
 │   │   ├── viewport.py   # Video display widget
-│   │   └── controls.py   # Camera control panel
-│   └── core/             # Configuration
-│       └── config.py
+│   │   ├── controls.py   # Camera control panel
+│   │   └── projections.py # X/Y projection panels
+│   └── core/             # Core utilities
+│       ├── config.py     # Configuration
+│       └── projection.py # Projection analysis
 ├── tests/                # pytest + pytest-qt tests
 ├── devops/
 │   └── .pre-commit-config.yaml
@@ -99,8 +120,32 @@ MOCK_CAMERA=1 just run
 just run-mock
 ```
 
-### Spinnaker Cameras (SDK 4.3+)
+### Spinnaker Cameras (SDK 4.2.x or 4.3.x with workaround)
 Supports FLIR/Point Grey cameras via Spinnaker SDK.
+
+**⚠️ Known Issue with SDK 4.3.0.189 on macOS ARM64:**
+PySpin 4.3.0.189 has a memory corruption bug where `GetNDArray()` returns numpy arrays 
+with incorrect `OWNDATA` flag. When garbage collected, numpy tries to free PySpin's 
+internal memory, causing "pointer being freed was not allocated" crash.
+
+**Workaround (implemented in this project):** Clear the `OWNDATA` flag before copying:
+```python
+import ctypes
+
+class _PyArrayObject(ctypes.Structure):
+    _fields_ = [("ob_refcnt", ctypes.c_ssize_t), ("ob_type", ctypes.c_void_p),
+                ("data", ctypes.c_void_p), ("nd", ctypes.c_int),
+                ("dimensions", ctypes.c_void_p), ("strides", ctypes.c_void_p),
+                ("base", ctypes.c_void_p), ("descr", ctypes.c_void_p),
+                ("flags", ctypes.c_int)]
+
+def clear_owndata(arr):
+    _PyArrayObject.from_address(id(arr)).flags &= ~0x0004
+
+raw = img.GetNDArray()
+clear_owndata(raw)  # Prevent numpy from freeing PySpin memory
+frame = np.array(raw, copy=True)  # Now safe to copy
+```
 
 **Download SDK**: [Teledyne Spinnaker SDK Downloads](https://www.teledynevisionsolutions.com/support/support-center/software-firmware-downloads/iis/spinnaker-sdk-download/spinnaker-sdk--download-files/?pn=Spinnaker+SDK&vn=Spinnaker+SDK)
 
@@ -142,11 +187,23 @@ just test
 # Run with coverage
 just test-cov 80
 
+# Run with real camera hardware
+just test-hardware
+
 # Run without hardware (mock only)
 just test-mock
 ```
 
-Uses `pytest-qt` for GUI testing.
+Uses `pytest-qt` for GUI testing. Coverage target: 80%.
+
+### Test Coverage
+
+| Module | Coverage |
+|--------|----------|
+| core/projection.py | 97% |
+| camera/mock.py | 94% |
+| ui/controls.py | 94% |
+| camera/protocol.py | 100% |
 
 ## 📦 Building Executable
 

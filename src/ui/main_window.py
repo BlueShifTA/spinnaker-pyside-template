@@ -1,21 +1,43 @@
-"""Main application window."""
+"""Main application window.
+
+Provides the main UI for camera QC application including:
+- Camera viewport with overlays
+- X and Y projection panels
+- Control panel with settings
+- Image export capabilities
+- Hideable control panel
+"""
 
 from __future__ import annotations
 
 import time
 from typing import TYPE_CHECKING
 
+import numpy as np
 from PySide6.QtCore import QThread, QTimer, Signal
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QMainWindow,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from camera.mock import MockCamera
 from camera.spinnaker import SPINNAKER_AVAILABLE, SpinnakerCamera
 from core.config import config
+from core.projection import ProjectionAnalyzer, ProjectionMode
 from ui.controls import ControlPanel
 from ui.projections import ProjectionPanel, YProjectionPanel
 from ui.viewport import CameraViewport
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
     from camera.protocol import CameraProtocol
 
 
@@ -47,7 +69,7 @@ class AcquisitionThread(QThread):
 
 
 class MainWindow(QMainWindow):
-    """Main application window."""
+    """Main application window for Camera Analysis QC."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -59,10 +81,16 @@ class MainWindow(QMainWindow):
         self._frame_count = 0
         self._last_fps_time = time.time()
         self._fps = 0.0
+        self._current_frame: npt.NDArray[np.uint8] | None = None
+
+        # Projection analyzers for X and Y
+        self._x_analyzer = ProjectionAnalyzer(mode=ProjectionMode.AVERAGE)
+        self._y_analyzer = ProjectionAnalyzer(mode=ProjectionMode.AVERAGE)
 
         self._setup_ui()
         self._setup_camera()
         self._connect_signals()
+        self._setup_shortcuts()
 
         # FPS update timer
         self._stats_timer = QTimer()
@@ -70,6 +98,7 @@ class MainWindow(QMainWindow):
         self._stats_timer.start(500)
 
     def _setup_ui(self) -> None:
+        """Set up the main UI layout."""
         central = QWidget()
         self.setCentralWidget(central)
 
@@ -106,9 +135,27 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(view_layout, stretch=1)
 
-        # Control panel (right side)
+        # Control panel in a scroll area (prevents overlap with camera view)
         self._controls = ControlPanel()
-        main_layout.addWidget(self._controls)
+
+        scroll = QScrollArea()
+        scroll.setWidget(self._controls)
+        scroll.setWidgetResizable(True)
+        scroll.setFixedWidth(320)
+        scroll.setHorizontalScrollBarPolicy(
+            scroll.horizontalScrollBarPolicy().ScrollBarAlwaysOff
+        )
+        scroll.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+
+        self._controls_container = scroll
+        main_layout.addWidget(self._controls_container)
+
+        # Hide panel button (always visible at edge)
+        self._hide_btn = QPushButton("◀")
+        self._hide_btn.setFixedWidth(20)
+        self._hide_btn.setToolTip("Hide/Show control panel (H)")
+        self._hide_btn.clicked.connect(self._toggle_controls)
+        main_layout.addWidget(self._hide_btn)
 
     def _connect_signals(self) -> None:
         """Connect control panel signals."""
@@ -124,10 +171,42 @@ class MainWindow(QMainWindow):
         self._controls.show_crosshair_changed.connect(self._viewport.set_show_crosshair)
         self._controls.grid_spacing_changed.connect(self._viewport.set_grid_spacing)
         self._controls.crosshair_size_changed.connect(self._viewport.set_crosshair_size)
+        self._controls.crosshair_extend_changed.connect(
+            self._viewport.set_crosshair_extend
+        )
+        self._controls.crosshair_width_changed.connect(
+            self._viewport.set_crosshair_width
+        )
 
         # Projection controls
         self._controls.show_x_projection_changed.connect(self._x_projection.set_visible)
         self._controls.show_y_projection_changed.connect(self._y_projection.set_visible)
+
+        # Projection panel settings
+        self._x_projection.mode_changed.connect(self._on_x_mode_changed)
+        self._x_projection.normalize_changed.connect(self._on_x_normalize_changed)
+        self._y_projection.mode_changed.connect(self._on_y_mode_changed)
+        self._y_projection.normalize_changed.connect(self._on_y_normalize_changed)
+
+        # Export
+        self._controls.export_image_clicked.connect(self._export_image)
+
+        # Window controls
+        self._controls.fullscreen_clicked.connect(self._toggle_fullscreen)
+
+    def _setup_shortcuts(self) -> None:
+        """Set up keyboard shortcuts."""
+        # H to hide/show controls
+        hide_shortcut = QShortcut(QKeySequence("H"), self)
+        hide_shortcut.activated.connect(self._toggle_controls)
+
+        # F for fullscreen
+        fullscreen_shortcut = QShortcut(QKeySequence("F"), self)
+        fullscreen_shortcut.activated.connect(self._toggle_fullscreen)
+
+        # Escape to exit fullscreen
+        escape_shortcut = QShortcut(QKeySequence("Escape"), self)
+        escape_shortcut.activated.connect(self._exit_fullscreen)
 
     def _setup_camera(self) -> None:
         """Initialize camera based on config."""
@@ -179,17 +258,28 @@ class MainWindow(QMainWindow):
 
     def _on_frame(self, frame: object) -> None:
         """Handle new frame from camera."""
-        import numpy as np
+        if not isinstance(frame, np.ndarray):
+            return
 
-        if isinstance(frame, np.ndarray):
-            self._viewport.update_frame(frame)
-            self._frame_count += 1
+        self._current_frame = frame
+        self._viewport.update_frame(frame)
+        self._frame_count += 1
 
-            # Update projections if visible
-            if self._controls.show_x_projection:
-                self._x_projection.update_from_frame(frame)
-            if self._controls.show_y_projection:
-                self._y_projection.update_from_frame(frame)
+        # Update projections if visible
+        show_x = self._controls.show_x_projection
+        show_y = self._controls.show_y_projection
+
+        if show_x:
+            data, stats = self._x_analyzer.analyze_x(frame)
+            self._x_projection.update_projection(
+                data, stats, self._x_analyzer.normalize
+            )
+
+        if show_y:
+            data, stats = self._y_analyzer.analyze_y(frame)
+            self._y_projection.update_projection(
+                data, stats, self._y_analyzer.normalize
+            )
 
     def _on_error(self, message: str) -> None:
         """Handle acquisition error."""
@@ -207,6 +297,71 @@ class MainWindow(QMainWindow):
     def _on_fps_changed(self, value: int) -> None:
         if self._camera and self._camera.is_connected:
             self._camera.set_fps(value)
+
+    def _on_x_mode_changed(self, mode: str) -> None:
+        """Handle X projection mode change."""
+        mode_map = {
+            "avg": ProjectionMode.AVERAGE,
+            "sum": ProjectionMode.SUM,
+            "min": ProjectionMode.MIN,
+            "max": ProjectionMode.MAX,
+        }
+        self._x_analyzer.mode = mode_map.get(mode, ProjectionMode.AVERAGE)
+
+    def _on_y_mode_changed(self, mode: str) -> None:
+        """Handle Y projection mode change."""
+        mode_map = {
+            "avg": ProjectionMode.AVERAGE,
+            "sum": ProjectionMode.SUM,
+            "min": ProjectionMode.MIN,
+            "max": ProjectionMode.MAX,
+        }
+        self._y_analyzer.mode = mode_map.get(mode, ProjectionMode.AVERAGE)
+
+    def _on_x_normalize_changed(self, normalize: bool) -> None:
+        """Handle X projection normalize toggle."""
+        self._x_analyzer.normalize = normalize
+
+    def _on_y_normalize_changed(self, normalize: bool) -> None:
+        """Handle Y projection normalize toggle."""
+        self._y_analyzer.normalize = normalize
+
+    def _export_image(self) -> None:
+        """Export current frame to file."""
+        if self._current_frame is None:
+            return
+
+        path, filter_used = QFileDialog.getSaveFileName(
+            self,
+            "Export Image",
+            "",
+            "TIFF Files (*.tiff *.tif);;PNG Files (*.png);;All Files (*)",
+        )
+
+        if path:
+            import cv2
+
+            # Save raw frame (BGR or grayscale)
+            cv2.imwrite(path, self._current_frame)
+            print(f"Image saved to: {path}")
+
+    def _toggle_controls(self) -> None:
+        """Toggle control panel visibility."""
+        visible = self._controls_container.isVisible()
+        self._controls_container.setVisible(not visible)
+        self._hide_btn.setText("▶" if visible else "◀")
+
+    def _toggle_fullscreen(self) -> None:
+        """Toggle fullscreen mode."""
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def _exit_fullscreen(self) -> None:
+        """Exit fullscreen mode."""
+        if self.isFullScreen():
+            self.showNormal()
 
     def _update_stats(self) -> None:
         """Update FPS statistics."""

@@ -23,6 +23,8 @@ class OverlaySettings:
     show_crosshair: bool = True
     grid_spacing: int = 50
     crosshair_size: int = 40
+    crosshair_extend: bool = False
+    crosshair_width: int = 2
     grid_color: tuple[int, int, int] = (100, 100, 100)
     crosshair_color: tuple[int, int, int] = (0, 255, 0)
 
@@ -37,9 +39,10 @@ class CameraViewport(QLabel):
         self._overlay = OverlaySettings()
         self._current_frame: npt.NDArray[np.uint8] | None = None
 
-        self.setMinimumSize(640, 480)
+        self.setMinimumSize(320, 240)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setScaledContents(False)  # Don't stretch pixmap beyond widget
         self.setStyleSheet("background-color: #1a1a1a; border: 1px solid #333;")
 
         self._show_placeholder()
@@ -78,6 +81,18 @@ class CameraViewport(QLabel):
         if self._current_frame is not None:
             self._render_frame(self._current_frame)
 
+    def set_crosshair_extend(self, extend: bool) -> None:
+        """Set whether crosshair extends to image edges."""
+        self._overlay.crosshair_extend = extend
+        if self._current_frame is not None:
+            self._render_frame(self._current_frame)
+
+    def set_crosshair_width(self, width: int) -> None:
+        """Set crosshair line width in pixels."""
+        self._overlay.crosshair_width = width
+        if self._current_frame is not None:
+            self._render_frame(self._current_frame)
+
     def update_frame(self, frame: npt.NDArray[np.uint8]) -> None:
         """Update the display with a new frame."""
         if frame is None:
@@ -89,9 +104,13 @@ class CameraViewport(QLabel):
 
     def _render_frame(self, frame: npt.NDArray[np.uint8]) -> None:
         """Render frame with overlays."""
+        # Use actual widget size for scaling (respects layout constraints)
+        display_w = max(self.width(), 320)
+        display_h = max(self.height(), 240)
+
         # Resize frame to fit display
         h, w = frame.shape[:2]
-        scale = min(self._display_width / w, self._display_height / h)
+        scale = min(display_w / w, display_h / h)
         new_w, new_h = int(w * scale), int(h * scale)
         resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
@@ -154,15 +173,18 @@ class CameraViewport(QLabel):
         # Draw crosshair
         if self._overlay.show_crosshair:
             crosshair_pen = QPen(Qt.GlobalColor.green)
-            crosshair_pen.setWidth(2)
+            crosshair_pen.setWidth(self._overlay.crosshair_width)
             painter.setPen(crosshair_pen)
 
-            size = self._overlay.crosshair_size
-
-            # Horizontal line
-            painter.drawLine(cx - size, cy, cx + size, cy)
-            # Vertical line
-            painter.drawLine(cx, cy - size, cx, cy + size)
+            if self._overlay.crosshair_extend:
+                # Extend to edges
+                painter.drawLine(0, cy, w, cy)  # Horizontal
+                painter.drawLine(cx, 0, cx, h)  # Vertical
+            else:
+                # Fixed size from center
+                size = self._overlay.crosshair_size
+                painter.drawLine(cx - size, cy, cx + size, cy)
+                painter.drawLine(cx, cy - size, cx, cy + size)
 
             # Center circle
             painter.drawEllipse(cx - 5, cy - 5, 10, 10)

@@ -17,17 +17,30 @@ def discover_cameras() -> list[dict[str, str]]:
     cameras = []
     for i in range(cam_list.GetSize()):
         cam = cam_list.GetByIndex(i)
-        cam.Init()
+
+        # Get device info from TL device nodemap (before Init)
+        nodemap_tldevice = cam.GetTLDeviceNodeMap()
+
+        serial_node = PySpin.CStringPtr(nodemap_tldevice.GetNode("DeviceSerialNumber"))
+        model_node = PySpin.CStringPtr(nodemap_tldevice.GetNode("DeviceModelName"))
+        vendor_node = PySpin.CStringPtr(nodemap_tldevice.GetNode("DeviceVendorName"))
 
         info = {
             "index": str(i),
-            "serial": cam.DeviceSerialNumber.GetValue(),
-            "model": cam.DeviceModelName.GetValue(),
-            "vendor": cam.DeviceVendorName.GetValue(),
+            "serial": serial_node.GetValue()
+            if PySpin.IsReadable(serial_node)
+            else "N/A",
+            "model": model_node.GetValue() if PySpin.IsReadable(model_node) else "N/A",
+            "vendor": vendor_node.GetValue()
+            if PySpin.IsReadable(vendor_node)
+            else "N/A",
         }
         cameras.append(info)
-        cam.DeInit()
 
+        # Release camera reference
+        del cam
+
+    # Clear camera list before releasing system
     cam_list.Clear()
     system.ReleaseInstance()
 

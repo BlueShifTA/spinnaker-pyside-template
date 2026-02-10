@@ -81,6 +81,11 @@ test:
   uv run pytest
 
 [group('test')]
+[doc("Run tests with real camera hardware")]
+test-hardware:
+  uv run pytest --run-hardware -v
+
+[group('test')]
 [doc("Run tests with coverage")]
 test-cov threshold="80":
   uv run pytest tests \

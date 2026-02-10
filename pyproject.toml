@@ -41,6 +41,9 @@ packages = ["src/app", "src/camera", "src/ui", "src/core"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 qt_api = "pyside6"
+markers = [
+    "hardware: mark test as requiring real camera hardware (deselect with '-m \"not hardware\"')",
+]
 
 [tool.coverage.run]
 branch = true
@@ -49,6 +52,11 @@ source = ["src"]
 [tool.coverage.report]
 show_missing = true
 skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
 
 [tool.ruff]
 line-length = 88

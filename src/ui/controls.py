@@ -1,4 +1,12 @@
-"""Camera control panel widget."""
+"""Camera control panel widget.
+
+Provides controls for:
+- Camera connection and settings (exposure, gain, fps)
+- Overlay settings (grid, crosshair)
+- Projection settings
+- Image export
+- Window controls (fullscreen, hide panel)
+"""
 
 from __future__ import annotations
 
@@ -17,9 +25,12 @@ from PySide6.QtWidgets import (
 
 
 class ControlPanel(QWidget):
-    """Widget with camera controls."""
+    """Widget with camera controls and settings.
 
-    # Signals emitted when controls change
+    Emits signals when controls change so the main window can react.
+    """
+
+    # Camera control signals
     start_clicked = Signal()
     stop_clicked = Signal()
     exposure_changed = Signal(int)
@@ -31,14 +42,26 @@ class ControlPanel(QWidget):
     show_crosshair_changed = Signal(bool)
     grid_spacing_changed = Signal(int)
     crosshair_size_changed = Signal(int)
+    crosshair_extend_changed = Signal(bool)
+    crosshair_width_changed = Signal(int)
 
     # Projection signals
     show_x_projection_changed = Signal(bool)
     show_y_projection_changed = Signal(bool)
+    x_projection_mode_changed = Signal(str)
+    y_projection_mode_changed = Signal(str)
+    x_projection_normalize_changed = Signal(bool)
+    y_projection_normalize_changed = Signal(bool)
+
+    # Export signals
+    export_image_clicked = Signal()
+
+    # Window signals
+    fullscreen_clicked = Signal()
 
     def __init__(self) -> None:
         super().__init__()
-        self.setFixedWidth(280)
+        self.setFixedWidth(300)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -100,12 +123,28 @@ class ControlPanel(QWidget):
         )
         overlay_layout.addRow("Crosshair:", self._crosshair_check)
 
+        self._crosshair_extend_check = QCheckBox()
+        self._crosshair_extend_check.setChecked(False)
+        self._crosshair_extend_check.stateChanged.connect(
+            lambda s: self.crosshair_extend_changed.emit(s == 2)
+        )
+        overlay_layout.addRow("Extend to Edge:", self._crosshair_extend_check)
+
         self._crosshair_size_spin = QSpinBox()
-        self._crosshair_size_spin.setRange(10, 200)
+        self._crosshair_size_spin.setRange(10, 500)
         self._crosshair_size_spin.setValue(40)
         self._crosshair_size_spin.setSuffix(" px")
         self._crosshair_size_spin.valueChanged.connect(self.crosshair_size_changed.emit)
         overlay_layout.addRow("Crosshair Size:", self._crosshair_size_spin)
+
+        self._crosshair_width_spin = QSpinBox()
+        self._crosshair_width_spin.setRange(1, 10)
+        self._crosshair_width_spin.setValue(2)
+        self._crosshair_width_spin.setSuffix(" px")
+        self._crosshair_width_spin.valueChanged.connect(
+            self.crosshair_width_changed.emit
+        )
+        overlay_layout.addRow("Line Width:", self._crosshair_width_spin)
 
         self._grid_check = QCheckBox()
         self._grid_check.setChecked(False)
@@ -159,6 +198,20 @@ class ControlPanel(QWidget):
 
         layout.addWidget(stats_group)
 
+        # Action buttons
+        btn_layout = QHBoxLayout()
+
+        self._export_btn = QPushButton("📥 Export Image")
+        self._export_btn.setStyleSheet("padding: 6px;")
+        self._export_btn.clicked.connect(self.export_image_clicked.emit)
+        btn_layout.addWidget(self._export_btn)
+
+        self._fullscreen_btn = QPushButton("⛶ Fullscreen")
+        self._fullscreen_btn.setStyleSheet("padding: 6px;")
+        self._fullscreen_btn.clicked.connect(self.fullscreen_clicked.emit)
+        btn_layout.addWidget(self._fullscreen_btn)
+
+        layout.addLayout(btn_layout)
         layout.addStretch()
 
     def set_running(self, running: bool) -> None:
@@ -186,6 +239,14 @@ class ControlPanel(QWidget):
     @property
     def show_crosshair(self) -> bool:
         return self._crosshair_check.isChecked()
+
+    @property
+    def crosshair_extend(self) -> bool:
+        return self._crosshair_extend_check.isChecked()
+
+    @property
+    def crosshair_width(self) -> int:
+        return self._crosshair_width_spin.value()
 
     @property
     def show_grid(self) -> bool:
