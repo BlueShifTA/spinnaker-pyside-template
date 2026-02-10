@@ -38,3 +38,7 @@ Thumbs.db
 
 # Spinnaker
 *.spin
+
+# SDK wheels (don't commit, but keep directory)
+devops/sdk/*.whl
+!devops/sdk/.gitkeep

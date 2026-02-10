@@ -20,9 +20,8 @@ def test_viewport_update_frame(qtbot: QtBot) -> None:
     viewport = CameraViewport(640, 480)
     qtbot.addWidget(viewport)
 
-    # Create a test frame
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    frame[:, :, 2] = 255  # Red
+    # Create a grayscale test frame
+    frame = np.ones((480, 640), dtype=np.uint8) * 128
 
     viewport.update_frame(frame)
 

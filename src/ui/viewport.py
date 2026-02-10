@@ -108,7 +108,7 @@ class CameraViewport(QLabel):
         self._show_placeholder()
 
     def _render_frame(self, frame: npt.NDArray[np.uint8]) -> None:
-        """Render frame with overlays."""
+        """Render grayscale frame with overlays."""
         # Use actual widget size for scaling (respects layout constraints)
         display_w = max(self.width(), 320)
         display_h = max(self.height(), 240)
@@ -119,22 +119,16 @@ class CameraViewport(QLabel):
         new_w, new_h = int(w * scale), int(h * scale)
         resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-        # Convert BGR to RGB for Qt
-        if len(resized.shape) == 3:
-            rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-        else:
-            # Grayscale to RGB
-            rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
+        # Ensure contiguous memory for QImage
+        resized = np.ascontiguousarray(resized)
 
-        # Make contiguous copy to ensure memory safety for QImage
-        rgb = np.ascontiguousarray(rgb)
-
-        h, w, ch = rgb.shape
-        bytes_per_line = ch * w
+        # Create QImage directly from grayscale data
+        h, w = resized.shape
+        bytes_per_line = w
 
         # Create QImage with copy of data (prevents memory issues)
         image = QImage(
-            rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888
+            resized.data, w, h, bytes_per_line, QImage.Format.Format_Grayscale8
         ).copy()
         pixmap = QPixmap.fromImage(image)
 

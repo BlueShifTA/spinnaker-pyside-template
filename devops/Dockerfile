@@ -71,12 +71,19 @@ WORKDIR /app
 # Copy application wheel from builder
 COPY --from=builder /app/dist/*.whl ./
 
-# Copy Spinnaker SDK wheel (must exist in devops/sdk/)
-COPY devops/sdk/*.whl ./sdk/
+# Install the application first
+RUN pip3 install --no-cache-dir ./*.whl && rm -f ./*.whl
 
-# Install the application and Spinnaker SDK
-RUN pip3 install --no-cache-dir ./*.whl ./sdk/*.whl && \
-    rm -rf ./sdk ./*.whl
+# Copy and install Spinnaker SDK wheel if available
+# Create sdk dir first to avoid COPY failure if empty
+RUN mkdir -p /app/sdk
+COPY devops/sdk/ /app/sdk/
+RUN if ls /app/sdk/*.whl 1>/dev/null 2>&1; then \
+        pip3 install --no-cache-dir /app/sdk/*.whl && \
+        echo "✓ Spinnaker SDK installed from wheel"; \
+    else \
+        echo "⚠ No Spinnaker wheel found in devops/sdk/"; \
+    fi && rm -rf /app/sdk
 
 # Copy startup script
 COPY devops/entrypoint.sh /entrypoint.sh
@@ -87,7 +94,7 @@ ENV QT_QPA_PLATFORM=xcb
 ENV QT_X11_NO_MITSHM=1
 ENV QT_QPA_PLATFORM_PLUGIN_PATH=""
 
-# Spinnaker library paths (for GenTL)
+# Spinnaker library paths (for GenTL - mounted from host)
 ENV SPINNAKER_GENTL64_CTI=/opt/spinnaker/lib/flir-gentl/FLIR_GenTL.cti
 ENV LD_LIBRARY_PATH=/opt/spinnaker/lib:$LD_LIBRARY_PATH
 

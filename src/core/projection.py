@@ -103,7 +103,7 @@ def normalize_projection(
     max_val = np.max(data)
     if max_val > 0:
         return data / max_val
-    return data.copy()
+    return data
 
 
 def calculate_fwhm(

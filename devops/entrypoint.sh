@@ -3,15 +3,27 @@
 
 set -e
 
-# Check for Spinnaker SDK
-if [ ! -d "/opt/spinnaker" ]; then
-    echo "⚠️  WARNING: Spinnaker SDK not found at /opt/spinnaker"
+# Check if PySpin is available (installed in container)
+PYSPIN_OK=$(python3 -c "import PySpin; print('yes')" 2>/dev/null || echo "no")
+
+if [ "$PYSPIN_OK" != "yes" ]; then
+    echo "⚠️  WARNING: Spinnaker Python SDK not installed in container"
     echo "   The application will run in mock camera mode."
     echo ""
-    echo "   To use real cameras, mount the Spinnaker SDK:"
-    echo "   docker run -v /opt/spinnaker:/opt/spinnaker:ro ..."
+    echo "   To build with Spinnaker SDK:"
+    echo "   1. Copy wheel to devops/sdk/: cp spinnaker_python-*.whl devops/sdk/"
+    echo "   2. Rebuild: docker build -t camera-qc -f devops/Dockerfile ."
     echo ""
     export MOCK_CAMERA=1
+fi
+
+# Check for Spinnaker C++ libraries (needed for USB access)
+if [ ! -d "/opt/spinnaker" ] && [ "$PYSPIN_OK" = "yes" ]; then
+    echo "⚠️  WARNING: Spinnaker C++ libraries not found at /opt/spinnaker"
+    echo "   Camera USB communication may not work."
+    echo ""
+    echo "   Mount the SDK: docker run -v /opt/spinnaker:/opt/spinnaker:ro ..."
+    echo ""
 fi
 
 # Check for display

@@ -257,11 +257,25 @@ DESKTOP
         cp "$DESKTOP_DIR/$APP_NAME.desktop" "$USER_DESKTOP/$APP_NAME.desktop"
         chown "$REAL_USER:$REAL_USER" "$USER_DESKTOP/$APP_NAME.desktop"
         chmod 755 "$USER_DESKTOP/$APP_NAME.desktop"
-        # Mark as trusted on GNOME
-        if command -v gio &> /dev/null; then
-            sudo -u "$REAL_USER" gio set "$USER_DESKTOP/$APP_NAME.desktop" metadata::trusted true 2>/dev/null || true
-        fi
         echo "  Copied to $USER_DESKTOP/"
+        
+        # Mark as trusted on GNOME (requires user's dbus session)
+        if command -v gio &> /dev/null; then
+            # Create a helper script for the user to run
+            TRUST_SCRIPT="/tmp/trust-camera-qc.sh"
+            cat > "$TRUST_SCRIPT" << 'TRUST'
+#!/bin/bash
+gio set "$HOME/Desktop/camera-qc.desktop" metadata::trusted true 2>/dev/null && \
+    echo "✓ Desktop icon trusted" || \
+    echo "Note: Right-click the desktop icon and select 'Allow Launching'"
+TRUST
+            chmod +x "$TRUST_SCRIPT"
+            chown "$REAL_USER:$REAL_USER" "$TRUST_SCRIPT"
+            
+            # Try to run it as user (may fail if no dbus session)
+            sudo -u "$REAL_USER" "$TRUST_SCRIPT" 2>/dev/null || \
+                echo "  Run 'gio set ~/Desktop/$APP_NAME.desktop metadata::trusted true' to enable"
+        fi
     fi
     
     # Update desktop database and icon cache
