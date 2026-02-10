@@ -159,6 +159,10 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         """Connect control panel signals."""
+        # Camera selection
+        self._controls.camera_selected.connect(self._on_camera_selected)
+        self._controls.refresh_cameras_clicked.connect(self._refresh_cameras)
+
         # Camera controls
         self._controls.start_clicked.connect(self._start_acquisition)
         self._controls.stop_clicked.connect(self._stop_acquisition)
@@ -209,21 +213,68 @@ class MainWindow(QMainWindow):
         escape_shortcut.activated.connect(self._exit_fullscreen)
 
     def _setup_camera(self) -> None:
-        """Initialize camera based on config."""
+        """Initialize camera discovery."""
+        self._selected_serial: str | None = None
+
         if config.mock_camera or not SPINNAKER_AVAILABLE:
-            print("Using mock camera")
+            if not SPINNAKER_AVAILABLE:
+                print("⚠️  Spinnaker SDK not installed - using mock camera")
+                print(
+                    "   Download from: https://www.teledynevisionsolutions.com/support/support-center/software-firmware-downloads/iis/spinnaker-sdk-download/spinnaker-sdk--download-files/"
+                )
+            else:
+                print("Using mock camera (mock mode enabled)")
             self._camera = MockCamera(
                 width=config.display.width,
                 height=config.display.height,
             )
+            # Set mock camera in dropdown
+            self._controls.set_cameras(
+                [
+                    {
+                        "model": "Mock Camera",
+                        "serial": "MOCK-001",
+                        "vendor": "Simulator",
+                    }
+                ]
+            )
         else:
-            print("Using Spinnaker camera")
-            self._camera = SpinnakerCamera(serial=config.camera.serial)
+            # Discover real cameras
+            self._refresh_cameras()
+
+    def _refresh_cameras(self) -> None:
+        """Refresh the list of available cameras."""
+        from camera.discover import discover_cameras
+
+        cameras = discover_cameras()
+        self._controls.set_cameras(cameras)
+
+        if cameras:
+            print(f"Found {len(cameras)} camera(s)")
+            self._selected_serial = cameras[0]["serial"]
+        else:
+            print("No cameras detected")
+            self._selected_serial = None
+
+    def _on_camera_selected(self, serial: str) -> None:
+        """Handle camera selection from dropdown."""
+        self._selected_serial = serial
+        print(f"Selected camera: {serial}")
 
     def _start_acquisition(self) -> None:
         """Start camera acquisition."""
-        if self._camera is None:
-            return
+        # Create camera instance with selected serial
+        if config.mock_camera or not SPINNAKER_AVAILABLE:
+            if self._camera is None:
+                self._camera = MockCamera(
+                    width=config.display.width,
+                    height=config.display.height,
+                )
+        else:
+            if self._selected_serial is None:
+                print("No camera selected")
+                return
+            self._camera = SpinnakerCamera(serial=self._selected_serial)
 
         try:
             self._camera.connect()

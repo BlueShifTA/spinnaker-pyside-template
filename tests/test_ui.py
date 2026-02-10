@@ -34,6 +34,9 @@ def test_control_panel_signals(qtbot: QtBot) -> None:
     panel = ControlPanel()
     qtbot.addWidget(panel)
 
+    # Set cameras to enable start button
+    panel.set_cameras([{"model": "Test Camera", "serial": "12345", "vendor": "Test"}])
+
     # Test start signal
     with qtbot.waitSignal(panel.start_clicked, timeout=1000):
         panel._start_btn.click()
@@ -47,9 +50,13 @@ def test_control_panel_state(qtbot: QtBot) -> None:
     panel = ControlPanel()
     qtbot.addWidget(panel)
 
-    # Initial state
-    assert panel._start_btn.isEnabled()
+    # Initial state (no camera selected)
+    assert not panel._start_btn.isEnabled()  # Disabled until camera selected
     assert not panel._stop_btn.isEnabled()
+
+    # Set cameras to enable start button
+    panel.set_cameras([{"model": "Test Camera", "serial": "12345", "vendor": "Test"}])
+    assert panel._start_btn.isEnabled()
 
     # Running state
     panel.set_running(True)

@@ -13,10 +13,12 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -29,6 +31,10 @@ class ControlPanel(QWidget):
 
     Emits signals when controls change so the main window can react.
     """
+
+    # Camera selection signals
+    camera_selected = Signal(str)  # serial number
+    refresh_cameras_clicked = Signal()
 
     # Camera control signals
     start_clicked = Signal()
@@ -62,11 +68,38 @@ class ControlPanel(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setFixedWidth(300)
+        self._cameras: list[dict[str, str]] = []
         self._setup_ui()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
+
+        # Camera selection
+        camera_group = QGroupBox("Camera")
+        camera_layout = QVBoxLayout(camera_group)
+
+        # Camera dropdown
+        self._camera_combo = QComboBox()
+        self._camera_combo.setPlaceholderText("No cameras detected")
+        self._camera_combo.currentIndexChanged.connect(self._on_camera_selected)
+        camera_layout.addWidget(self._camera_combo)
+
+        # Refresh button
+        refresh_layout = QHBoxLayout()
+        self._refresh_btn = QPushButton("🔄 Refresh")
+        self._refresh_btn.clicked.connect(self.refresh_cameras_clicked.emit)
+        refresh_layout.addWidget(self._refresh_btn)
+        refresh_layout.addStretch()
+        camera_layout.addLayout(refresh_layout)
+
+        # Camera info label
+        self._camera_info = QLabel("No camera selected")
+        self._camera_info.setStyleSheet("color: #888; font-size: 10px;")
+        self._camera_info.setWordWrap(True)
+        camera_layout.addWidget(self._camera_info)
+
+        layout.addWidget(camera_group)
 
         # Connection controls
         conn_group = QGroupBox("Connection")
@@ -75,6 +108,7 @@ class ControlPanel(QWidget):
         self._start_btn = QPushButton("Start")
         self._start_btn.setStyleSheet("background-color: #22c55e; color: black;")
         self._start_btn.clicked.connect(self.start_clicked.emit)
+        self._start_btn.setEnabled(False)  # Disabled until camera selected
 
         self._stop_btn = QPushButton("Stop")
         self._stop_btn.setStyleSheet("background-color: #ef4444;")
@@ -259,3 +293,42 @@ class ControlPanel(QWidget):
     @property
     def show_y_projection(self) -> bool:
         return self._y_projection_check.isChecked()
+
+    def set_cameras(self, cameras: list[dict[str, str]]) -> None:
+        """Update the camera list dropdown."""
+        self._cameras = cameras
+        self._camera_combo.clear()
+
+        if not cameras:
+            self._camera_combo.setPlaceholderText("No cameras detected")
+            self._camera_info.setText("No camera selected")
+            self._start_btn.setEnabled(False)
+            return
+
+        for cam in cameras:
+            display_text = f"{cam['model']} ({cam['serial']})"
+            self._camera_combo.addItem(display_text, cam["serial"])
+
+        # Auto-select first camera
+        if cameras:
+            self._camera_combo.setCurrentIndex(0)
+
+    def _on_camera_selected(self, index: int) -> None:
+        """Handle camera selection change."""
+        if index < 0 or index >= len(self._cameras):
+            self._camera_info.setText("No camera selected")
+            self._start_btn.setEnabled(False)
+            return
+
+        cam = self._cameras[index]
+        self._camera_info.setText(f"Vendor: {cam['vendor']}\nSerial: {cam['serial']}")
+        self._start_btn.setEnabled(True)
+        self.camera_selected.emit(cam["serial"])
+
+    @property
+    def selected_camera_serial(self) -> str | None:
+        """Get the serial number of the selected camera."""
+        index = self._camera_combo.currentIndex()
+        if index < 0 or index >= len(self._cameras):
+            return None
+        return self._cameras[index]["serial"]

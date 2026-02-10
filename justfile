@@ -122,10 +122,50 @@ typecheck:
 [group('build')]
 [doc("Build standalone executable with PyInstaller")]
 build-exe:
-  uv run pyinstaller --onefile --windowed --name spinnaker-app src/app/main.py
+  uv run pyinstaller --onefile --windowed --name camera-qc src/app/main.py
+
+[group('build')]
+[doc("Build Docker image for x86_64")]
+build-docker:
+  docker build -t camera-qc -f devops/Dockerfile .
+
+[group('build')]
+[doc("Build Docker image for Jetson")]
+build-docker-jetson:
+  docker build -t camera-qc-jetson -f devops/Dockerfile.jetson .
 
 [group('build')]
 clean:
   rm -rf .venv .mypy_cache .ruff_cache .pytest_cache __pycache__ .coverage coverage.xml
   rm -rf build dist *.spec
   find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+# ─────────────────────────────────────────────────────────────
+# Deployment
+# ─────────────────────────────────────────────────────────────
+
+[group('deploy')]
+[doc("Run from Docker container")]
+run-docker:
+  #!/usr/bin/env bash
+  xhost +local:docker 2>/dev/null || true
+  docker run --rm -it \
+    -e DISPLAY="$DISPLAY" \
+    -e QT_X11_NO_MITSHM=1 \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+    -v /opt/spinnaker:/opt/spinnaker:ro \
+    -v "$HOME/camera-qc-exports:/app/exports" \
+    --device=/dev/bus/usb \
+    --network=host \
+    camera-qc
+
+[group('deploy')]
+[doc("Install to system (requires sudo)")]
+deploy-install:
+  @echo "Run: sudo ./devops/install.sh"
+  @echo "  or: sudo ./devops/install.sh --source (for dev mode)"
+
+[group('deploy')]
+[doc("Uninstall from system (requires sudo)")]
+deploy-uninstall:
+  @echo "Run: sudo ./devops/uninstall.sh"
