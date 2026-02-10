@@ -27,7 +27,7 @@ def test_mock_camera_acquisition() -> None:
     frame = camera.get_frame()
     assert frame is not None
     assert isinstance(frame, np.ndarray)
-    assert frame.shape == (480, 640, 3)
+    assert frame.shape == (480, 640)  # Grayscale
     assert frame.dtype == np.uint8
 
     camera.stop_acquisition()

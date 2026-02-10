@@ -102,6 +102,11 @@ class CameraViewport(QLabel):
         self._current_frame = frame
         self._render_frame(frame)
 
+    def clear_frame(self) -> None:
+        """Clear current frame and free memory."""
+        self._current_frame = None
+        self._show_placeholder()
+
     def _render_frame(self, frame: npt.NDArray[np.uint8]) -> None:
         """Render frame with overlays."""
         # Use actual widget size for scaling (respects layout constraints)
@@ -121,9 +126,16 @@ class CameraViewport(QLabel):
             # Grayscale to RGB
             rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
 
+        # Make contiguous copy to ensure memory safety for QImage
+        rgb = np.ascontiguousarray(rgb)
+
         h, w, ch = rgb.shape
         bytes_per_line = ch * w
-        image = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+
+        # Create QImage with copy of data (prevents memory issues)
+        image = QImage(
+            rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888
+        ).copy()
         pixmap = QPixmap.fromImage(image)
 
         # Draw overlays

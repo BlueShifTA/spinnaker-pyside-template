@@ -145,12 +145,23 @@ install_docker() {
 # Allow X11 connections
 xhost +local:docker 2>/dev/null || true
 
+# Find Spinnaker Python path
+SPIN_PYTHON=""
+for dir in /opt/spinnaker/lib/python3.10/site-packages /opt/spinnaker/lib/python3/site-packages /opt/spinnaker/python; do
+    if [ -f "$dir/PySpin.py" ] || [ -f "$dir/_PySpin.so" ]; then
+        SPIN_PYTHON="$dir"
+        break
+    fi
+done
+
 # Run the container
 docker run --rm -it \
     -e DISPLAY="$DISPLAY" \
     -e QT_X11_NO_MITSHM=1 \
+    -e PYTHONPATH="/opt/spinnaker-python:$PYTHONPATH" \
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
     -v /opt/spinnaker:/opt/spinnaker:ro \
+    ${SPIN_PYTHON:+-v "$SPIN_PYTHON:/opt/spinnaker-python:ro"} \
     -v "$HOME/camera-qc-exports:/app/exports" \
     --device=/dev/bus/usb \
     --network=host \
@@ -184,6 +195,17 @@ install_source() {
 
 cd "$PROJECT_DIR"
 
+# Disable OpenCV Qt plugins to avoid conflicts with PySide6
+export QT_QPA_PLATFORM_PLUGIN_PATH=""
+
+# Find Spinnaker Python path on Linux
+for dir in /opt/spinnaker/lib/python3.10/site-packages /opt/spinnaker/lib/python3/site-packages /opt/spinnaker/python; do
+    if [ -f "\$dir/PySpin.py" ] || [ -f "\$dir/_PySpin.so" ]; then
+        export PYTHONPATH="\$dir:\$PYTHONPATH"
+        break
+    fi
+done
+
 # Check for virtual environment
 if [ ! -d ".venv" ]; then
     echo "Setting up virtual environment..."
@@ -201,11 +223,18 @@ WRAPPER
 # Create desktop entry
 install_desktop() {
     mkdir -p "$DESKTOP_DIR"
-    mkdir -p "$ICON_DIR"
+    mkdir -p "/usr/share/icons/hicolor/scalable/apps"
     
-    # Create a simple icon (placeholder)
-    # In production, copy a real icon file
+    # Get script directory
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
+    # Copy SVG icon
+    if [ -f "$SCRIPT_DIR/camera-qc.svg" ]; then
+        cp "$SCRIPT_DIR/camera-qc.svg" "/usr/share/icons/hicolor/scalable/apps/camera-qc.svg"
+        echo "  Installed icon to /usr/share/icons/"
+    fi
+    
+    # Create desktop entry in system location
     cat > "$DESKTOP_DIR/$APP_NAME.desktop" << DESKTOP
 [Desktop Entry]
 Version=1.0
@@ -219,12 +248,28 @@ Categories=Utility;Graphics;Science;
 Keywords=camera;qc;beam;profile;
 DESKTOP
     
-    chmod +x "$DESKTOP_DIR/$APP_NAME.desktop"
+    chmod 644 "$DESKTOP_DIR/$APP_NAME.desktop"
     
-    # Update desktop database
+    # Also copy to user's Desktop for easy access
+    REAL_USER="${SUDO_USER:-$USER}"
+    USER_DESKTOP="/home/$REAL_USER/Desktop"
+    if [ -d "$USER_DESKTOP" ]; then
+        cp "$DESKTOP_DIR/$APP_NAME.desktop" "$USER_DESKTOP/$APP_NAME.desktop"
+        chown "$REAL_USER:$REAL_USER" "$USER_DESKTOP/$APP_NAME.desktop"
+        chmod 755 "$USER_DESKTOP/$APP_NAME.desktop"
+        # Mark as trusted on GNOME
+        if command -v gio &> /dev/null; then
+            sudo -u "$REAL_USER" gio set "$USER_DESKTOP/$APP_NAME.desktop" metadata::trusted true 2>/dev/null || true
+        fi
+        echo "  Copied to $USER_DESKTOP/"
+    fi
+    
+    # Update desktop database and icon cache
     update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
     
     echo -e "${GREEN}✓ Desktop entry installed${NC}"
+    echo "  System: $DESKTOP_DIR/$APP_NAME.desktop"
 }
 
 # Main installation

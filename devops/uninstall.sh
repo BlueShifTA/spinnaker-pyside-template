@@ -35,10 +35,24 @@ if [ -f "$BIN_DIR/$APP_NAME" ]; then
     echo "  Removed $BIN_DIR/$APP_NAME"
 fi
 
-# Remove desktop entry
+# Remove desktop entry from system
 if [ -f "$DESKTOP_DIR/$APP_NAME.desktop" ]; then
     rm -f "$DESKTOP_DIR/$APP_NAME.desktop"
     echo "  Removed $DESKTOP_DIR/$APP_NAME.desktop"
+fi
+
+# Remove desktop entry from user's Desktop
+REAL_USER="${SUDO_USER:-$USER}"
+USER_DESKTOP="/home/$REAL_USER/Desktop"
+if [ -f "$USER_DESKTOP/$APP_NAME.desktop" ]; then
+    rm -f "$USER_DESKTOP/$APP_NAME.desktop"
+    echo "  Removed $USER_DESKTOP/$APP_NAME.desktop"
+fi
+
+# Remove icon
+if [ -f "/usr/share/icons/hicolor/scalable/apps/camera-qc.svg" ]; then
+    rm -f "/usr/share/icons/hicolor/scalable/apps/camera-qc.svg"
+    echo "  Removed icon"
 fi
 
 # Remove install directory
@@ -49,6 +63,7 @@ fi
 
 # Update desktop database
 update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 
 # Ask about Docker image
 if command -v docker &> /dev/null; then

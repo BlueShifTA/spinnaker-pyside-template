@@ -1,12 +1,14 @@
 # Camera Analysis QC - Docker Image
 # Multi-stage build for x86_64 Linux
 #
+# IMPORTANT: Place Spinnaker Python wheel in devops/sdk/ before building:
+#   cp spinnaker_python-*.whl devops/sdk/
+#
 # Usage:
 #   docker build -t camera-qc -f devops/Dockerfile .
 #   docker run --rm -it \
 #     -e DISPLAY=$DISPLAY \
 #     -v /tmp/.X11-unix:/tmp/.X11-unix \
-#     -v /opt/spinnaker:/opt/spinnaker:ro \
 #     --device=/dev/bus/usb \
 #     camera-qc
 
@@ -50,7 +52,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libxcb-xinerama0 \
     libxcb-cursor0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
     libxkbcommon0 \
+    libxkbcommon-x11-0 \
     libegl1 \
     libfontconfig1 \
     libdbus-1-3 \
@@ -59,11 +68,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy wheel from builder
+# Copy application wheel from builder
 COPY --from=builder /app/dist/*.whl ./
 
-# Install the application
-RUN pip3 install --no-cache-dir ./*.whl
+# Copy Spinnaker SDK wheel (must exist in devops/sdk/)
+COPY devops/sdk/*.whl ./sdk/
+
+# Install the application and Spinnaker SDK
+RUN pip3 install --no-cache-dir ./*.whl ./sdk/*.whl && \
+    rm -rf ./sdk ./*.whl
 
 # Copy startup script
 COPY devops/entrypoint.sh /entrypoint.sh
@@ -72,11 +85,11 @@ RUN chmod +x /entrypoint.sh
 # Environment for Qt
 ENV QT_QPA_PLATFORM=xcb
 ENV QT_X11_NO_MITSHM=1
+ENV QT_QPA_PLATFORM_PLUGIN_PATH=""
 
-# Spinnaker paths (host-mounted)
+# Spinnaker library paths (for GenTL)
 ENV SPINNAKER_GENTL64_CTI=/opt/spinnaker/lib/flir-gentl/FLIR_GenTL.cti
 ENV LD_LIBRARY_PATH=/opt/spinnaker/lib:$LD_LIBRARY_PATH
-ENV PYTHONPATH=/opt/spinnaker/lib/python3.10/site-packages:$PYTHONPATH
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["camera-qc"]
+CMD ["python3", "-m", "app.main"]

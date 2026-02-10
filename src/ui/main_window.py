@@ -11,9 +11,10 @@ Provides the main UI for camera QC application including:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
 
+import cv2
 import numpy as np
+import numpy.typing as npt
 from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from camera.mock import MockCamera
+from camera.protocol import CameraProtocol
 from camera.spinnaker import SPINNAKER_AVAILABLE, SpinnakerCamera
 from core.config import config
 from core.projection import ProjectionAnalyzer, ProjectionMode
@@ -35,14 +37,12 @@ from ui.controls import ControlPanel
 from ui.projections import ProjectionPanel, YProjectionPanel
 from ui.viewport import CameraViewport
 
-if TYPE_CHECKING:
-    import numpy.typing as npt
-
-    from camera.protocol import CameraProtocol
-
 
 class AcquisitionThread(QThread):
-    """Background thread for camera acquisition."""
+    """Background thread for camera acquisition.
+
+    Uses frame dropping to prevent memory buildup when UI can't keep up.
+    """
 
     frame_ready = Signal(object)  # numpy array
     error = Signal(str)
@@ -51,6 +51,7 @@ class AcquisitionThread(QThread):
         super().__init__()
         self._camera = camera
         self._running = False
+        self._frame_count = 0
 
     def run(self) -> None:
         self._running = True
@@ -58,14 +59,19 @@ class AcquisitionThread(QThread):
             try:
                 frame = self._camera.get_frame()
                 if frame is not None:
+                    self._frame_count += 1
+                    # Only emit every frame - Qt will drop if queue is full
                     self.frame_ready.emit(frame)
+                else:
+                    # Small sleep if no frame to prevent busy loop
+                    self.msleep(1)
             except Exception as e:
                 self.error.emit(str(e))
                 break
 
     def stop(self) -> None:
         self._running = False
-        self.wait()
+        self.wait(2000)  # Wait max 2 seconds
 
 
 class MainWindow(QMainWindow):
@@ -287,6 +293,7 @@ class MainWindow(QMainWindow):
             self._last_fps_time = time.time()
 
             self._thread = AcquisitionThread(self._camera)
+            # Use QueuedConnection (default) - safer for cross-thread GUI updates
             self._thread.frame_ready.connect(self._on_frame)
             self._thread.error.connect(self._on_error)
             self._thread.start()
@@ -305,12 +312,29 @@ class MainWindow(QMainWindow):
             self._camera.stop_acquisition()
             self._camera.disconnect()
 
+        # Clear frame references to free memory
+        self._current_frame = None
+        self._viewport.clear_frame()
+
         self._controls.set_running(False)
 
     def _on_frame(self, frame: object) -> None:
-        """Handle new frame from camera."""
+        """Handle new frame from camera.
+
+        Uses rate limiting to prevent UI freezing when camera FPS
+        exceeds display update capability.
+        """
         if not isinstance(frame, np.ndarray):
             return
+
+        # Rate limit UI updates to ~30 fps max
+        current_time = time.time()
+        if not hasattr(self, "_last_frame_time"):
+            self._last_frame_time = 0.0
+
+        if current_time - self._last_frame_time < 0.033:  # ~30 fps
+            return
+        self._last_frame_time = current_time
 
         self._current_frame = frame
         self._viewport.update_frame(frame)
@@ -390,8 +414,6 @@ class MainWindow(QMainWindow):
         )
 
         if path:
-            import cv2
-
             # Save raw frame (BGR or grayscale)
             cv2.imwrite(path, self._current_frame)
             print(f"Image saved to: {path}")

@@ -14,34 +14,71 @@ install:
   uv run pre-commit install --config devops/.pre-commit-config.yaml
 
 [group('install')]
-[doc("Install Spinnaker Python from SDK (macOS ARM64)")]
+[doc("Install Spinnaker Python from SDK (auto-detect OS)")]
 install-spinnaker:
   #!/usr/bin/env bash
   set -euo pipefail
-  SPIN_DIR="/Applications/Spinnaker/PySpin"
-  WHEEL_TAR="$SPIN_DIR/spinnaker_python-4.3.0.189-cp310-cp310-macosx_13_0_arm64.tar.gz"
   
-  if [ ! -f "$WHEEL_TAR" ]; then
-    echo "❌ Spinnaker SDK not found at $SPIN_DIR"
+  OS="$(uname -s)"
+  ARCH="$(uname -m)"
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  SDK_DIR="$SCRIPT_DIR/devops/sdk"
+  
+  echo "🔍 Detecting platform: $OS / $ARCH"
+  
+  case "$OS" in
+    Darwin)
+      # macOS - check for wheel in SDK dir first, then system
+      if [ "$ARCH" = "arm64" ]; then
+        WHEEL=$(find "$SDK_DIR" -name "spinnaker_python*macosx*arm64*.whl" 2>/dev/null | head -1)
+        if [ -z "$WHEEL" ]; then
+          # Try to extract from system Spinnaker
+          SPIN_DIR="/Applications/Spinnaker/PySpin"
+          WHEEL_TAR=$(find "$SPIN_DIR" -name "spinnaker_python*arm64*.tar.gz" 2>/dev/null | head -1)
+          if [ -n "$WHEEL_TAR" ]; then
+            echo "📦 Extracting from $WHEEL_TAR..."
+            TMPDIR=$(mktemp -d)
+            tar -xzf "$WHEEL_TAR" -C "$TMPDIR"
+            WHEEL=$(find "$TMPDIR" -name "*.whl" | head -1)
+          fi
+        fi
+      else
+        WHEEL=$(find "$SDK_DIR" -name "spinnaker_python*macosx*x86_64*.whl" 2>/dev/null | head -1)
+      fi
+      ;;
+      
+    Linux)
+      # Linux - check SDK dir for wheel
+      if [ "$ARCH" = "x86_64" ]; then
+        WHEEL=$(find "$SDK_DIR" -name "spinnaker_python*linux_x86_64*.whl" 2>/dev/null | head -1)
+      elif [ "$ARCH" = "aarch64" ]; then
+        WHEEL=$(find "$SDK_DIR" -name "spinnaker_python*linux_aarch64*.whl" -o -name "spinnaker_python*linux_arm64*.whl" 2>/dev/null | head -1)
+      fi
+      ;;
+      
+    *)
+      echo "❌ Unsupported OS: $OS"
+      exit 1
+      ;;
+  esac
+  
+  if [ -z "$WHEEL" ] || [ ! -f "$WHEEL" ]; then
+    echo "❌ Spinnaker Python wheel not found"
     echo ""
-    echo "Please install Spinnaker SDK 4.3 from:"
+    echo "Please download the wheel from:"
     echo "  https://www.teledynevisionsolutions.com/support/support-center/software-firmware-downloads/iis/spinnaker-sdk-download/spinnaker-sdk--download-files/"
     echo ""
-    echo "Download: Spinnaker SDK 4.3 for MacOS (Apple Silicon)"
+    echo "Place the .whl file in: $SDK_DIR/"
+    echo "Expected: spinnaker_python-*-cp310-*.whl"
     exit 1
   fi
   
-  echo "📦 Extracting Spinnaker Python wheel..."
-  TMPDIR=$(mktemp -d)
-  tar -xzf "$WHEEL_TAR" -C "$TMPDIR"
-  
-  echo "📥 Installing spinnaker_python..."
-  uv pip install "$TMPDIR"/spinnaker_python-*.whl
+  echo "📥 Installing: $(basename "$WHEEL")"
+  uv pip install "$WHEEL"
   
   echo "✅ Verifying installation..."
   uv run python -c "import PySpin; v = PySpin.System.GetInstance().GetLibraryVersion(); print(f'PySpin {v.major}.{v.minor}.{v.type}.{v.build} installed successfully')"
   
-  rm -rf "$TMPDIR"
   echo "🎉 Done!"
 
 [group('install')]
@@ -58,9 +95,27 @@ sync:
 # Run Application
 # ─────────────────────────────────────────────────────────────
 
+# Helper to find Spinnaker Python path on Linux
+_spinnaker-path := if os() == "linux" {
+  "/opt/spinnaker/lib/python3.10/site-packages"
+} else {
+  ""
+}
+
 [group('run')]
 run:
-  uv run python -m app.main
+  #!/usr/bin/env bash
+  # Auto-detect Spinnaker Python path on Linux
+  if [ "$(uname -s)" = "Linux" ]; then
+    for dir in /opt/spinnaker/lib/python3.10/site-packages /opt/spinnaker/lib/python3/site-packages /opt/spinnaker/python; do
+      if [ -f "$dir/PySpin.py" ] || [ -f "$dir/_PySpin.so" ]; then
+        export PYTHONPATH="$dir:$PYTHONPATH"
+        echo "Using Spinnaker from: $dir"
+        break
+      fi
+    done
+  fi
+  exec uv run python -m app.main
 
 [group('run')]
 [doc("Run with mock camera (no hardware required)")]
@@ -70,7 +125,16 @@ run-mock:
 [group('run')]
 [doc("Run camera discovery utility")]
 discover:
-  uv run python -m camera.discover
+  #!/usr/bin/env bash
+  if [ "$(uname -s)" = "Linux" ]; then
+    for dir in /opt/spinnaker/lib/python3.10/site-packages /opt/spinnaker/lib/python3/site-packages /opt/spinnaker/python; do
+      if [ -f "$dir/PySpin.py" ] || [ -f "$dir/_PySpin.so" ]; then
+        export PYTHONPATH="$dir:$PYTHONPATH"
+        break
+      fi
+    done
+  fi
+  exec uv run python -m camera.discover
 
 # ─────────────────────────────────────────────────────────────
 # Testing

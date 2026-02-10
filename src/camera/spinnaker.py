@@ -45,15 +45,6 @@ class _PyArrayObject(ctypes.Structure):
     ]
 
 
-_NPY_ARRAY_OWNDATA = 0x0004
-
-
-def _clear_owndata_flag(arr: np.ndarray[Any, Any]) -> None:
-    """Clear OWNDATA flag to prevent numpy from freeing PySpin memory."""
-    arr_struct = _PyArrayObject.from_address(id(arr))
-    arr_struct.flags &= ~_NPY_ARRAY_OWNDATA
-
-
 class SpinnakerCamera(CameraProtocol):
     """FLIR Spinnaker camera implementation."""
 
@@ -209,12 +200,16 @@ class SpinnakerCamera(CameraProtocol):
             print("[Spinnaker] Acquisition stopped")
 
     def get_frame(self) -> npt.NDArray[np.uint8] | None:
-        """Get next frame from camera.
+        """Get next frame from camera as grayscale.
 
         Uses GetNDArray() with OWNDATA flag workaround for PySpin 4.3 memory bug.
+        Returns single-channel grayscale image (H, W).
         """
         if self._camera is None or not self._acquiring:
             return None
+
+        image_result = None
+        converted = None
 
         try:
             image_result = self._camera.GetNextImage(1000)  # 1 second timeout
@@ -224,31 +219,10 @@ class SpinnakerCamera(CameraProtocol):
                 return None
 
             # Get pixel format for conversion
-            pixel_format = image_result.GetPixelFormat()
+            raw = image_result.GetNDArray()
+            frame = np.array(raw)
 
-            if pixel_format == PySpin.PixelFormat_Mono8:
-                # Get raw array from PySpin
-                raw = image_result.GetNDArray()
-                # WORKAROUND: Clear OWNDATA flag to prevent double-free crash
-                _clear_owndata_flag(raw)
-                # Make our own copy that we DO own
-                mono = np.array(raw, copy=True)
-                # Convert mono to BGR for display
-                frame = np.stack([mono, mono, mono], axis=-1)
-            else:
-                # For color formats, convert to BGR8 first
-                converted = self._processor.Convert(
-                    image_result, PySpin.PixelFormat_BGR8
-                )
-                raw = converted.GetNDArray()
-                # WORKAROUND: Clear OWNDATA flag
-                _clear_owndata_flag(raw)
-                frame = np.array(raw, copy=True)
-
-            # Release image AFTER we've copied the data
-            image_result.Release()
-
-            return frame  # type: ignore[no-any-return]
+            return frame
 
         except PySpin.SpinnakerException as e:
             print(f"[Spinnaker] Frame error: {e}")
@@ -256,6 +230,18 @@ class SpinnakerCamera(CameraProtocol):
         except Exception as e:
             print(f"[Spinnaker] Unexpected error: {e}")
             return None
+        finally:
+            # Always release images to prevent memory leak
+            if converted is not None:
+                try:
+                    converted.Release()
+                except Exception:
+                    pass
+            if image_result is not None:
+                try:
+                    image_result.Release()
+                except Exception:
+                    pass
 
     def set_exposure(self, exposure_us: int) -> None:
         """Set exposure time in microseconds."""

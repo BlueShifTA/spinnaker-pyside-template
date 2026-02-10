@@ -21,5 +21,13 @@ if [ -z "$DISPLAY" ]; then
     exit 1
 fi
 
+# Disable OpenCV's Qt plugins to avoid conflicts with PySide6
+export QT_QPA_PLATFORM_PLUGIN_PATH=""
+
+# Remove cv2 qt plugins path if it exists (they conflict with PySide6)
+if [ -d "/usr/local/lib/python3.10/dist-packages/cv2/qt/plugins" ]; then
+    rm -rf /usr/local/lib/python3.10/dist-packages/cv2/qt/plugins 2>/dev/null || true
+fi
+
 # Run the application
 exec python3 -m app.main "$@"

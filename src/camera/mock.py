@@ -62,23 +62,25 @@ class MockCamera(CameraProtocol):
         self._last_frame_time = time.time()
         self._frame_count += 1
 
-        # Generate gradient test pattern with moving element
-        frame = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+        # Generate grayscale test pattern with moving element
+        frame = np.zeros((self._height, self._width), dtype=np.uint8)
 
         # Horizontal gradient
         gradient = np.linspace(0, 255, self._width, dtype=np.uint8)
-        frame[:, :, 0] = gradient  # Blue channel
+        frame[:, :] = gradient  # Fill with horizontal gradient
 
-        # Vertical gradient
-        gradient_v = np.linspace(0, 255, self._height, dtype=np.uint8)
-        frame[:, :, 1] = gradient_v[:, np.newaxis]  # Green channel
+        # Add vertical gradient component
+        gradient_v = np.linspace(0, 128, self._height, dtype=np.uint8)
+        frame = np.clip(
+            frame.astype(np.int16) + gradient_v[:, np.newaxis] - 64, 0, 255
+        ).astype(np.uint8)
 
         # Moving circle
         cx = int((self._frame_count * 5) % self._width)
         cy = self._height // 2
         y, x = np.ogrid[: self._height, : self._width]
         mask = (x - cx) ** 2 + (y - cy) ** 2 < 50**2
-        frame[mask, 2] = 255  # Red circle
+        frame[mask] = 255  # White circle
 
         # Apply simulated gain/exposure
         brightness = min(255, int(self._gain_db * 10 + self._exposure_us / 100))
