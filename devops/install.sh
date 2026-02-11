@@ -11,7 +11,7 @@
 # Requirements:
 #   - Docker (for container mode)
 #   - Python 3.10+ and uv (for source mode)
-#   - Spinnaker SDK installed at /opt/spinnaker
+#   - Spinnaker Python wheel in devops/sdk/ (optional, for real camera)
 
 set -e
 
@@ -83,18 +83,6 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Check prerequisites
-check_spinnaker() {
-    if [ -d "/opt/spinnaker" ]; then
-        echo -e "${GREEN}✓ Spinnaker SDK found${NC}"
-        return 0
-    else
-        echo -e "${YELLOW}⚠ Spinnaker SDK not found at /opt/spinnaker${NC}"
-        echo "  Application will run in mock camera mode."
-        echo "  Download from: https://www.teledynevisionsolutions.com/support/support-center/software-firmware-downloads/iis/spinnaker-sdk-download/spinnaker-sdk--download-files/"
-        return 1
-    fi
-}
-
 check_docker() {
     if command -v docker &> /dev/null; then
         echo -e "${GREEN}✓ Docker found${NC}"
@@ -123,21 +111,30 @@ install_docker() {
     echo ""
     
     check_docker || exit 1
-    check_spinnaker
     
     # Get script directory
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
     
-    # Build Docker image
+    # Check if SDK wheel exists
+    if ! ls "$SCRIPT_DIR/sdk/"*.whl 1>/dev/null 2>&1; then
+        echo -e "${YELLOW}⚠ No Spinnaker wheel found in devops/sdk/${NC}"
+        echo "  Copy the wheel before building:"
+        echo "    cp spinnaker_python-*.whl devops/sdk/"
+        echo ""
+        echo "  Continuing without SDK (mock camera only)..."
+        echo ""
+    fi
+    
+    # Build Docker image (use --no-cache to ensure SDK wheel is picked up)
     echo "Building Docker image..."
     cd "$PROJECT_DIR"
-    docker build -t $APP_NAME -f devops/$DOCKERFILE .
+    docker build --no-cache -t $APP_NAME -f devops/$DOCKERFILE .
     
     # Create install directory
     mkdir -p "$INSTALL_DIR"
     
-    # Create wrapper script
+    # Create wrapper script - simple, SDK is in container
     cat > "$BIN_DIR/$APP_NAME" << 'WRAPPER'
 #!/bin/bash
 # Camera Analysis QC - Docker wrapper
@@ -145,26 +142,17 @@ install_docker() {
 # Allow X11 connections
 xhost +local:docker 2>/dev/null || true
 
-# Find Spinnaker Python path
-SPIN_PYTHON=""
-for dir in /opt/spinnaker/lib/python3.10/site-packages /opt/spinnaker/lib/python3/site-packages /opt/spinnaker/python; do
-    if [ -f "$dir/PySpin.py" ] || [ -f "$dir/_PySpin.so" ]; then
-        SPIN_PYTHON="$dir"
-        break
-    fi
-done
-
 # Run the container
+# - SDK is installed inside container from wheel
+# - USB device access for camera
+# - X11 forwarding for GUI
 docker run --rm -it \
     -e DISPLAY="$DISPLAY" \
     -e QT_X11_NO_MITSHM=1 \
-    -e PYTHONPATH="/opt/spinnaker-python:$PYTHONPATH" \
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-    -v /opt/spinnaker:/opt/spinnaker:ro \
-    ${SPIN_PYTHON:+-v "$SPIN_PYTHON:/opt/spinnaker-python:ro"} \
     -v "$HOME/camera-qc-exports:/app/exports" \
     --device=/dev/bus/usb \
-    --network=host \
+    --privileged \
     camera-qc "$@"
 WRAPPER
     chmod +x "$BIN_DIR/$APP_NAME"
@@ -178,15 +166,38 @@ install_source() {
     echo ""
     
     check_python || exit 1
-    check_spinnaker
     
     # Get script directory
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
     
+    # Check for SDK wheel
+    SDK_WHEEL=""
+    if ls "$SCRIPT_DIR/sdk/"*.whl 1>/dev/null 2>&1; then
+        SDK_WHEEL=$(ls "$SCRIPT_DIR/sdk/"*.whl | head -1)
+        echo -e "${GREEN}✓ Found SDK wheel: $(basename $SDK_WHEEL)${NC}"
+    else
+        echo -e "${YELLOW}⚠ No Spinnaker wheel in devops/sdk/ - will use mock camera${NC}"
+    fi
+    
     # Create install directory with source link
     mkdir -p "$INSTALL_DIR"
     ln -sf "$PROJECT_DIR" "$INSTALL_DIR/source"
+    
+    # Setup virtual environment and install SDK
+    echo "Setting up virtual environment..."
+    cd "$PROJECT_DIR"
+    
+    if [ ! -d ".venv" ]; then
+        uv sync 2>/dev/null || (python3 -m venv .venv && .venv/bin/pip install -e .)
+    fi
+    
+    # Install SDK wheel into venv if available
+    if [ -n "$SDK_WHEEL" ]; then
+        echo "Installing Spinnaker SDK..."
+        .venv/bin/pip install --quiet "$SDK_WHEEL"
+        echo -e "${GREEN}✓ Spinnaker SDK installed${NC}"
+    fi
     
     # Create wrapper script
     cat > "$BIN_DIR/$APP_NAME" << WRAPPER
@@ -198,21 +209,7 @@ cd "$PROJECT_DIR"
 # Disable OpenCV Qt plugins to avoid conflicts with PySide6
 export QT_QPA_PLATFORM_PLUGIN_PATH=""
 
-# Find Spinnaker Python path on Linux
-for dir in /opt/spinnaker/lib/python3.10/site-packages /opt/spinnaker/lib/python3/site-packages /opt/spinnaker/python; do
-    if [ -f "\$dir/PySpin.py" ] || [ -f "\$dir/_PySpin.so" ]; then
-        export PYTHONPATH="\$dir:\$PYTHONPATH"
-        break
-    fi
-done
-
-# Check for virtual environment
-if [ ! -d ".venv" ]; then
-    echo "Setting up virtual environment..."
-    uv sync 2>/dev/null || python3 -m venv .venv && .venv/bin/pip install -e .
-fi
-
-# Run the application
+# Run the application from venv (SDK is installed in venv)
 exec .venv/bin/python -m app.main "\$@"
 WRAPPER
     chmod +x "$BIN_DIR/$APP_NAME"
@@ -254,27 +251,19 @@ DESKTOP
     REAL_USER="${SUDO_USER:-$USER}"
     USER_DESKTOP="/home/$REAL_USER/Desktop"
     if [ -d "$USER_DESKTOP" ]; then
-        cp "$DESKTOP_DIR/$APP_NAME.desktop" "$USER_DESKTOP/$APP_NAME.desktop"
-        chown "$REAL_USER:$REAL_USER" "$USER_DESKTOP/$APP_NAME.desktop"
-        chmod 755 "$USER_DESKTOP/$APP_NAME.desktop"
+        DESKTOP_FILE="$USER_DESKTOP/$APP_NAME.desktop"
+        cp "$DESKTOP_DIR/$APP_NAME.desktop" "$DESKTOP_FILE"
+        chown "$REAL_USER:$REAL_USER" "$DESKTOP_FILE"
+        chmod 755 "$DESKTOP_FILE"
         echo "  Copied to $USER_DESKTOP/"
         
-        # Mark as trusted on GNOME (requires user's dbus session)
-        if command -v gio &> /dev/null; then
-            # Create a helper script for the user to run
-            TRUST_SCRIPT="/tmp/trust-camera-qc.sh"
-            cat > "$TRUST_SCRIPT" << 'TRUST'
-#!/bin/bash
-gio set "$HOME/Desktop/camera-qc.desktop" metadata::trusted true 2>/dev/null && \
-    echo "✓ Desktop icon trusted" || \
-    echo "Note: Right-click the desktop icon and select 'Allow Launching'"
-TRUST
-            chmod +x "$TRUST_SCRIPT"
-            chown "$REAL_USER:$REAL_USER" "$TRUST_SCRIPT"
-            
-            # Try to run it as user (may fail if no dbus session)
-            sudo -u "$REAL_USER" "$TRUST_SCRIPT" 2>/dev/null || \
-                echo "  Run 'gio set ~/Desktop/$APP_NAME.desktop metadata::trusted true' to enable"
+        # Mark as trusted on GNOME using dbus-launch
+        if command -v gio &> /dev/null && command -v dbus-launch &> /dev/null; then
+            sudo -u "$REAL_USER" dbus-launch gio set "$DESKTOP_FILE" metadata::trusted true 2>/dev/null && \
+                echo -e "  ${GREEN}✓ Desktop icon trusted${NC}" || \
+                echo "  Note: Right-click the icon and select 'Allow Launching'"
+        elif command -v gio &> /dev/null; then
+            echo "  Run: dbus-launch gio set $DESKTOP_FILE metadata::trusted true"
         fi
     fi
     
