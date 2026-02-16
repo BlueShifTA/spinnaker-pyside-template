@@ -151,7 +151,7 @@ frame = np.array(raw, copy=True)  # Now safe to copy
 
 **macOS (Apple Silicon):**
 1. Download & install Spinnaker SDK 4.3 for macOS (Apple Silicon)
-2. Install ffmpeg dependency: `brew install ffmpeg@2.8`
+2. Install ffmpeg dependency: `brew install ffmpeg`
 3. Run: `just install-spinnaker`
 4. Verify: `just discover`
 
@@ -195,24 +195,6 @@ just test-mock
 ```
 
 Uses `pytest-qt` for GUI testing. Coverage target: 80%.
-
-### Test Coverage
-
-| Module | Coverage |
-|--------|----------|
-| core/projection.py | 97% |
-| camera/mock.py | 94% |
-| ui/controls.py | 94% |
-| camera/protocol.py | 100% |
-
-## 📦 Building Executable
-
-```bash
-# Build standalone .exe/.app
-just build-exe
-```
-
-Uses PyInstaller to create a single-file executable.
 
 ## 🎨 Adding New Camera Types
 
