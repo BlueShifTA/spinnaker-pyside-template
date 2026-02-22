@@ -179,6 +179,39 @@ format:
 typecheck:
   uv run mypy src
 
+[group('test')]
+[doc("Run CI-equivalent checks locally (mock-safe)")]
+run-ci:
+  uv sync --frozen
+  MOCK_CAMERA=1 uv run pytest tests -m "not hardware" \
+    --cov=src \
+    --cov-report=xml:coverage.xml \
+    --cov-report=term-missing \
+    --cov-fail-under=80
+  uv run ruff format --check src tests
+  uv run ruff check src tests
+  uv run mypy src
+  uv run pyright src
+
+# ─────────────────────────────────────────────────────────────
+# Template / AI Docs
+# ─────────────────────────────────────────────────────────────
+
+[group('template')]
+[doc("Customize template metadata and names")]
+bootstrap:
+  uv run python scripts/bootstrap.py
+
+[group('template')]
+[doc("Mark and clean template-only leftovers after first successful build")]
+template-clean:
+  uv run python scripts/template_clean.py
+
+[group('template')]
+[doc("Regenerate ProjectMap.md for fast agent search")]
+project-map:
+  uv run python scripts/generate_project_map.py
+
 # ─────────────────────────────────────────────────────────────
 # Build & Package
 # ─────────────────────────────────────────────────────────────

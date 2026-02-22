@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -17,6 +18,7 @@ class MockCamera(CameraProtocol):
     """Mock camera that generates test patterns."""
 
     def __init__(self, width: int = 1280, height: int = 720) -> None:
+        self._logger = logging.getLogger(self.__class__.__name__)
         self._width = width
         self._height = height
         self._connected = False
@@ -29,12 +31,12 @@ class MockCamera(CameraProtocol):
 
     def connect(self) -> None:
         self._connected = True
-        print("[MockCamera] Connected")
+        self._logger.info("Connected")
 
     def disconnect(self) -> None:
         self.stop_acquisition()
         self._connected = False
-        print("[MockCamera] Disconnected")
+        self._logger.info("Disconnected")
 
     def start_acquisition(self) -> None:
         if not self._connected:
@@ -42,11 +44,11 @@ class MockCamera(CameraProtocol):
         self._acquiring = True
         self._frame_count = 0
         self._last_frame_time = time.time()
-        print("[MockCamera] Acquisition started")
+        self._logger.info("Acquisition started")
 
     def stop_acquisition(self) -> None:
         self._acquiring = False
-        print("[MockCamera] Acquisition stopped")
+        self._logger.info("Acquisition stopped")
 
     def get_frame(self) -> npt.NDArray[np.uint8] | None:
         if not self._acquiring:
@@ -92,15 +94,15 @@ class MockCamera(CameraProtocol):
 
     def set_exposure(self, exposure_us: int) -> None:
         self._exposure_us = exposure_us
-        print(f"[MockCamera] Exposure set to {exposure_us} us")
+        self._logger.info("Exposure set to %d us", exposure_us)
 
     def set_gain(self, gain_db: float) -> None:
         self._gain_db = gain_db
-        print(f"[MockCamera] Gain set to {gain_db} dB")
+        self._logger.info("Gain set to %.2f dB", gain_db)
 
     def set_fps(self, fps: int) -> None:
         self._fps = max(1, fps)
-        print(f"[MockCamera] FPS set to {fps}")
+        self._logger.info("FPS set to %d", fps)
 
     @property
     def is_connected(self) -> bool:
